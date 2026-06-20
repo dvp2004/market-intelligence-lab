@@ -1,0 +1,51 @@
+universe_id: mi1_us_liquid_etf_22_v1
+scope: daily_end_of_day_market_data_only
+registry_version: 1
+research_start_date_policy: coverage_audit_determined_no_manual_assumption
+minimum_common_history_sessions: 252
+
+assets:
+  - symbol: SPY
+    role: us_large_cap_equity
+  - symbol: QQQ
+    role: us_growth_equity
+  - symbol: IWM
+    role: us_small_cap_equity
+  - symbol: XLB
+    role: materials_sector
+  - symbol: XLE
+    role: energy_sector
+  - symbol: XLF
+    role: financials_sector
+  - symbol: XLI
+    role: industrials_sector
+  - symbol: XLK
+    role: technology_sector
+  - symbol: XLP
+    role: consumer_staples_sector
+  - symbol: XLU
+    role: utilities_sector
+  - symbol: XLV
+    role: health_care_sector
+  - symbol: XLY
+    role: consumer_discretionary_sector
+  - symbol: EFA
+    role: international_developed_equity
+  - symbol: EEM
+    role: emerging_market_equity
+  - symbol: BIL
+    role: cash_short_duration_proxy
+  - symbol: IEF
+    role: intermediate_treasuries
+  - symbol: TLT
+    role: long_treasuries
+  - symbol: AGG
+    role: core_investment_grade_bonds
+  - symbol: LQD
+    role: investment_grade_credit
+  - symbol: HYG
+    role: high_yield_credit
+  - symbol: GLD
+    role: gold
+  - symbol: DBC
+    role: broad_commodities

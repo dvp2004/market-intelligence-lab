@@ -1,0 +1,49 @@
+# Python environments and build artefacts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+secrets/
+credentials/
+
+# Local analytical stores and logs
+*.duckdb
+*.duckdb.wal
+*.duckdb.tmp
+*.sqlite
+*.db
+logs/
+
+# Non-public data and generated research artefacts
+/data/raw/*
+!/data/raw/.gitkeep
+/data/normalized/*
+!/data/normalized/.gitkeep
+/data/private/*
+!/data/private/.gitkeep
+/reports/mi1/*
+!/reports/mi1/.gitkeep
+
+# Editor and operating-system noise
+.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
