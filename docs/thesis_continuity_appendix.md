@@ -2,7 +2,9 @@
 
 ## Evidence status
 
-This appendix is provisional. The undergraduate thesis PDF has not been supplied to this repository bootstrap. The summary below is based on the public `nflx-hybrid-forecasting-trading-overlay` repository and must be checked against the PDF once provided.
+Status: repository-derived and sufficient for MI-1.
+
+The public `nflx-hybrid-forecasting-trading-overlay` repository is the authoritative continuity source for this implementation project. Its README and code document the prior research question, dataset/time period, feature branches, chronological and purged evaluation, persistence baselines, trading overlay, findings, and limitations. The original undergraduate thesis PDF is optional later only for literature-review wording or preparation of an academic thesis proposal; MI-1 does not require, fetch, or wait for a PDF.
 
 ## Original research question
 
