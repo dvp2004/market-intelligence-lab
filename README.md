@@ -112,6 +112,26 @@ Outputs:
 
 MI-3 is forecast evaluation only: zero excess return, persistence, technical-only Ridge, and technical-plus-macro Ridge are compared on the same macro-eligible observations.
 
+## MI-4 tree technical comparator
+
+MI-4 is the final technical-model-family comparator. It consumes accepted local MI-2 outputs only and evaluates one fixed `RandomForestRegressor` technical model against the MI-2 forecast comparators. It does not refresh MI-1, run MI-2 or MI-3, use macro inputs, create a portfolio, or make trading recommendations.
+
+```powershell
+python -m market_intelligence_lab.cli run-mi4-tree-technical-comparator `
+  --mi2-data-root data/private/mi2 `
+  --mi4-data-root data/private/mi4 `
+  --report-root reports/mi4
+```
+
+Outputs:
+
+- `data/private/mi4/tree_walk_forward_predictions.parquet`
+- `data/private/mi4/tree_forecast_scoreboard.parquet`
+- `reports/mi4/tree_technical_forecast_scoreboard.md`
+- `reports/mi4/tree_technical_forecast_scoreboard.json`
+
+If the fixed MI-4 promotion gate fails, do not add further technical model types, parameter sweeps, or technical feature variations. The next research modality is controlled text/event research.
+
 ## Start here
 
 - `docs/continuation_map.md`

@@ -11,6 +11,9 @@ from market_intelligence_lab.data.adapter_yfinance import YFinanceEodAdapter
 from market_intelligence_lab.data.pipeline import load_source_config, refresh_mi1_market_data
 from market_intelligence_lab.mi2.technical_baseline import run_mi2_technical_baseline
 from market_intelligence_lab.mi3.macro_vintage_forecast import run_mi3_macro_vintage_forecast
+from market_intelligence_lab.mi4.tree_technical_comparator import (
+    run_mi4_tree_technical_comparator,
+)
 from market_intelligence_lab.quality.validation import DataQualityError
 
 
@@ -71,6 +74,23 @@ def _build_parser() -> argparse.ArgumentParser:
         "--mi2-registry-config",
         type=Path,
         default=Path("configs/mi2_research_registry.yaml"),
+    )
+    mi4 = subparsers.add_parser(
+        "run-mi4-tree-technical-comparator",
+        help="Run the research-only MI-4 fixed tree technical comparator.",
+    )
+    mi4.add_argument("--mi2-data-root", type=Path, required=True)
+    mi4.add_argument("--mi4-data-root", type=Path, required=True)
+    mi4.add_argument("--report-root", type=Path, required=True)
+    mi4.add_argument(
+        "--mi2-registry-config",
+        type=Path,
+        default=Path("configs/mi2_research_registry.yaml"),
+    )
+    mi4.add_argument(
+        "--universe-config",
+        type=Path,
+        default=Path("configs/universe_mi1.yaml"),
     )
     return parser
 
@@ -166,6 +186,42 @@ def main() -> None:
         for name, count in result.row_counts.items():
             print(f"  {name}: {count}")
         print(f"model_count: {result.model_count}")
+        print("output_paths:")
+        for name, path in result.output_paths.items():
+            print(f"  {name}: {path}")
+        print("forecast_scoreboard_summary:")
+        for row in result.scoreboard_summary:
+            print(
+                "  "
+                f"{row['model_name']} | {row['segment']} | mae={row['mae']} | "
+                f"rank_corr={row['rank_correlation']} | {row['promotion_status']}"
+            )
+        return
+
+    if args.command == "run-mi4-tree-technical-comparator":
+        result = run_mi4_tree_technical_comparator(
+            mi2_data_root=args.mi2_data_root,
+            mi4_data_root=args.mi4_data_root,
+            report_root=args.report_root,
+            registry_path=args.mi2_registry_config,
+            universe_config_path=args.universe_config,
+        )
+        print("mi2_input_provenance:")
+        for name, value in result.mi2_input_provenance.items():
+            print(f"  {name}: {value}")
+        print(f"research_start_date: {result.research_start_date}")
+        print(
+            "walk_forward_validation: "
+            f"{result.validation_start_date} through {result.validation_end_date}"
+        )
+        print(f"untouched_holdout: {result.holdout_start_date} through {result.holdout_end_date}")
+        print("fixed_random_forest_constants:")
+        for name, value in result.fixed_random_forest_constants.items():
+            print(f"  {name}: {value}")
+        print(f"comparison_row_set_sha256: {result.comparison_row_set_sha256}")
+        print("prediction_counts:")
+        for name, count in result.prediction_counts.items():
+            print(f"  {name}: {count}")
         print("output_paths:")
         for name, path in result.output_paths.items():
             print(f"  {name}: {path}")
