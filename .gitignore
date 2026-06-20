@@ -42,8 +42,13 @@ logs/
 !/data/normalized/.gitkeep
 /data/private/*
 !/data/private/.gitkeep
+!/data/private/mi2/
+/data/private/mi2/*
+!/data/private/mi2/.gitkeep
 /reports/mi1/*
 !/reports/mi1/.gitkeep
+/reports/mi2/*
+!/reports/mi2/.gitkeep
 
 # Editor and operating-system noise
 .vscode/settings.json

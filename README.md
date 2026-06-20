@@ -62,6 +62,30 @@ Outputs:
 
 The default yfinance source configuration is credential-free, uses `auto_adjust=False`, records corporate actions separately, and marks default availability evidence as `contractual_assumption`. This is not provider timestamp verification.
 
+## MI-2 technical baseline
+
+The MI-2 command consumes accepted local MI-1 normalized outputs only. It does not refresh MI-1 data or use network access.
+
+```powershell
+python -m market_intelligence_lab.cli run-mi2-technical-baseline `
+  --mi1-data-root data/private/mi1 `
+  --mi2-data-root data/private/mi2 `
+  --report-root reports/mi2
+```
+
+Outputs:
+
+- `data/private/mi2/feature_panel.parquet`
+- `data/private/mi2/target_panel.parquet`
+- `data/private/mi2/walk_forward_predictions.parquet`
+- `data/private/mi2/strategy_returns.parquet`
+- `data/private/mi2/strategy_trades.parquet`
+- `data/private/mi2/scoreboard.parquet`
+- `reports/mi2/technical_baseline_scoreboard.md`
+- `reports/mi2/technical_baseline_scoreboard.json`
+
+MI-2 separates forecast evaluation from portfolio evaluation. Ridge forecast results are compared with zero-excess-return and persistence baselines; portfolio results cover the registered non-model baselines plus one fixed technical composite. No Ridge-driven portfolio strategy is created.
+
 ## Start here
 
 - `docs/continuation_map.md`

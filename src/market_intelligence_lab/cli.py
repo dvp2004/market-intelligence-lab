@@ -9,6 +9,7 @@ from pathlib import Path
 
 from market_intelligence_lab.data.adapter_yfinance import YFinanceEodAdapter
 from market_intelligence_lab.data.pipeline import load_source_config, refresh_mi1_market_data
+from market_intelligence_lab.mi2.technical_baseline import run_mi2_technical_baseline
 from market_intelligence_lab.quality.validation import DataQualityError
 
 
@@ -40,6 +41,18 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("configs/mi2_research_registry.yaml"),
     )
+    mi2 = subparsers.add_parser(
+        "run-mi2-technical-baseline",
+        help="Run the research-only MI-2 technical baseline from local MI-1 outputs.",
+    )
+    mi2.add_argument("--mi1-data-root", type=Path, required=True)
+    mi2.add_argument("--mi2-data-root", type=Path, required=True)
+    mi2.add_argument("--report-root", type=Path, required=True)
+    mi2.add_argument(
+        "--mi2-registry-config",
+        type=Path,
+        default=Path("configs/mi2_research_registry.yaml"),
+    )
     return parser
 
 
@@ -67,6 +80,38 @@ def format_data_quality_error(error: DataQualityError, raw_root: Path) -> str:
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
+    if args.command == "run-mi2-technical-baseline":
+        result = run_mi2_technical_baseline(
+            mi1_data_root=args.mi1_data_root,
+            mi2_data_root=args.mi2_data_root,
+            report_root=args.report_root,
+            registry_path=args.mi2_registry_config,
+        )
+        print("mi1_provenance:")
+        for name, value in result.mi1_provenance.items():
+            print(f"  {name}: {value}")
+        print(f"derived_research_start_date: {result.research_start_date}")
+        print(
+            "walk_forward_validation: "
+            f"{result.validation_start_date} through {result.validation_end_date}"
+        )
+        print(f"untouched_holdout: {result.holdout_start_date} through {result.holdout_end_date}")
+        print(f"feature_row_count: {result.feature_row_count}")
+        print(f"target_row_count: {result.target_row_count}")
+        print(f"strategy_count: {result.strategy_count}")
+        print(f"model_count: {result.model_count}")
+        print("output_paths:")
+        for name, path in result.output_paths.items():
+            print(f"  {name}: {path}")
+        print("scoreboard_summary:")
+        for row in result.scoreboard_summary:
+            print(
+                "  "
+                f"{row['evaluation_layer']} | {row['strategy_model_name']} | "
+                f"{row['evaluation_segment']} | pass={row['promotion_criteria_pass']}"
+            )
+        return
+
     if args.command != "refresh-mi1-market-data":
         print("Market Intelligence Lab: MI-0 complete; MI-1 market-data command available.")
         return
