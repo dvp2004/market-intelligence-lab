@@ -10,6 +10,7 @@ from pathlib import Path
 from market_intelligence_lab.data.adapter_yfinance import YFinanceEodAdapter
 from market_intelligence_lab.data.pipeline import load_source_config, refresh_mi1_market_data
 from market_intelligence_lab.mi2.technical_baseline import run_mi2_technical_baseline
+from market_intelligence_lab.mi3.macro_vintage_forecast import run_mi3_macro_vintage_forecast
 from market_intelligence_lab.quality.validation import DataQualityError
 
 
@@ -49,6 +50,24 @@ def _build_parser() -> argparse.ArgumentParser:
     mi2.add_argument("--mi2-data-root", type=Path, required=True)
     mi2.add_argument("--report-root", type=Path, required=True)
     mi2.add_argument(
+        "--mi2-registry-config",
+        type=Path,
+        default=Path("configs/mi2_research_registry.yaml"),
+    )
+    mi3 = subparsers.add_parser(
+        "run-mi3-macro-vintage-forecast",
+        help="Run the research-only MI-3 vintage-aware macro forecast comparison.",
+    )
+    mi3.add_argument("--mi1-data-root", type=Path, required=True)
+    mi3.add_argument("--mi2-data-root", type=Path, required=True)
+    mi3.add_argument("--mi3-data-root", type=Path, required=True)
+    mi3.add_argument("--report-root", type=Path, required=True)
+    mi3.add_argument(
+        "--macro-config",
+        type=Path,
+        default=Path("configs/macro_series_mi3.yaml"),
+    )
+    mi3.add_argument(
         "--mi2-registry-config",
         type=Path,
         default=Path("configs/mi2_research_registry.yaml"),
@@ -109,6 +128,53 @@ def main() -> None:
                 "  "
                 f"{row['evaluation_layer']} | {row['strategy_model_name']} | "
                 f"{row['evaluation_segment']} | pass={row['promotion_criteria_pass']}"
+            )
+        return
+
+    if args.command == "run-mi3-macro-vintage-forecast":
+        result = run_mi3_macro_vintage_forecast(
+            mi1_data_root=args.mi1_data_root,
+            mi2_data_root=args.mi2_data_root,
+            mi3_data_root=args.mi3_data_root,
+            report_root=args.report_root,
+            macro_config_path=args.macro_config,
+            registry_path=args.mi2_registry_config,
+        )
+        print("source_provenance:")
+        for name, value in result.source_provenance.items():
+            print(f"  {name}: {value}")
+        print(f"macro_series_count: {result.macro_series_count}")
+        print(f"macro_availability_evidence_level: {result.macro_availability_evidence_level}")
+        print("vintage_capabilities:")
+        for row in result.vintage_capabilities:
+            print(
+                "  "
+                f"{row['series_id']} | "
+                f"vintage_start_date={row['vintage_start_date']} | "
+                f"vintage_end_date={row['vintage_end_date']} | "
+                f"requested_effective_realtime_start="
+                f"{row['requested_effective_realtime_start']} | "
+                f"requested_effective_realtime_end={row['requested_effective_realtime_end']}"
+            )
+        print(f"macro_eligible_research_start_date: {result.macro_eligible_start_date}")
+        print(
+            "walk_forward_validation: "
+            f"{result.validation_start_date} through {result.validation_end_date}"
+        )
+        print(f"untouched_holdout: {result.holdout_start_date} through {result.holdout_end_date}")
+        print("row_counts:")
+        for name, count in result.row_counts.items():
+            print(f"  {name}: {count}")
+        print(f"model_count: {result.model_count}")
+        print("output_paths:")
+        for name, path in result.output_paths.items():
+            print(f"  {name}: {path}")
+        print("forecast_scoreboard_summary:")
+        for row in result.scoreboard_summary:
+            print(
+                "  "
+                f"{row['model_name']} | {row['segment']} | mae={row['mae']} | "
+                f"rank_corr={row['rank_correlation']} | {row['promotion_status']}"
             )
         return
 

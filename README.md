@@ -86,6 +86,32 @@ Outputs:
 
 MI-2 separates forecast evaluation from portfolio evaluation. Ridge forecast results are compared with zero-excess-return and persistence baselines; portfolio results cover the registered non-model baselines plus one fixed technical composite. No Ridge-driven portfolio strategy is created.
 
+## MI-3 macro vintage forecast
+
+The MI-3 command consumes local MI-1 and MI-2 outputs, then retrieves vintage-aware FRED/ALFRED observations using `FRED_API_KEY` from the active process environment. It does not load `.env` files and does not create a macro portfolio strategy.
+
+```powershell
+python -m market_intelligence_lab.cli run-mi3-macro-vintage-forecast `
+  --mi1-data-root data/private/mi1 `
+  --mi2-data-root data/private/mi2 `
+  --mi3-data-root data/private/mi3 `
+  --report-root reports/mi3
+```
+
+Outputs:
+
+- `data/private/mi3/raw/`
+- `data/private/mi3/manifests/macro_raw_snapshot_manifest.parquet`
+- `data/private/mi3/normalized/macro_vintage_observation.parquet`
+- `data/private/mi3/normalized/macro_asof_panel.parquet`
+- `data/private/mi3/macro_feature_panel.parquet`
+- `data/private/mi3/walk_forward_macro_predictions.parquet`
+- `data/private/mi3/macro_forecast_scoreboard.parquet`
+- `reports/mi3/macro_forecast_scoreboard.md`
+- `reports/mi3/macro_forecast_scoreboard.json`
+
+MI-3 is forecast evaluation only: zero excess return, persistence, technical-only Ridge, and technical-plus-macro Ridge are compared on the same macro-eligible observations.
+
 ## Start here
 
 - `docs/continuation_map.md`
