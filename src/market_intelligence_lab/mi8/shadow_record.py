@@ -20,6 +20,45 @@ from market_intelligence_lab.mi2.technical_baseline import (
 )
 
 NEW_YORK_TZ = ZoneInfo("America/New_York")
+OPERATING_BRANCH = "shadow/mi8-v1"
+OPERATING_TAG = "mi8-shadow-v1"
+EXPECTED_MI1_INSTRUMENT_IDS = {
+    "mi1_etf_agg",
+    "mi1_etf_bil",
+    "mi1_etf_dbc",
+    "mi1_etf_eem",
+    "mi1_etf_efa",
+    "mi1_etf_gld",
+    "mi1_etf_hyg",
+    "mi1_etf_ief",
+    "mi1_etf_iwm",
+    "mi1_etf_lqd",
+    "mi1_etf_qqq",
+    "mi1_etf_spy",
+    "mi1_etf_tlt",
+    "mi1_etf_xlb",
+    "mi1_etf_xle",
+    "mi1_etf_xlf",
+    "mi1_etf_xli",
+    "mi1_etf_xlk",
+    "mi1_etf_xlp",
+    "mi1_etf_xlu",
+    "mi1_etf_xlv",
+    "mi1_etf_xly",
+}
+REQUIRED_LATEST_BAR_COLUMNS = [
+    "instrument_id",
+    "session_date",
+    "open_raw",
+    "high_raw",
+    "low_raw",
+    "close_raw",
+    "volume_raw",
+    "vendor_adjusted_close",
+    "available_at_utc",
+    "availability_evidence_level",
+    "snapshot_id",
+]
 
 
 class ProspectiveShadowStartGuardError(ValueError):
@@ -50,6 +89,42 @@ def _get_git_branch() -> str:
         return result.stdout.strip()
     except subprocess.CalledProcessError:
         return "unknown"
+
+
+def _get_head_commit() -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
+
+
+def _get_tag_commit(tag_name: str = OPERATING_TAG) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", f"{tag_name}^{{commit}}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
+
+
+def _get_tag_object_type(tag_name: str = OPERATING_TAG) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "cat-file", "-t", tag_name],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
 
 
 def _is_git_clean() -> bool:
@@ -218,6 +293,128 @@ def _calculate_target_returns(
     return pd.DataFrame(rows)
 
 
+def _validate_prospective_operating_release() -> None:
+    branch = _get_git_branch()
+    if branch != OPERATING_BRANCH:
+        raise ProspectiveShadowStartGuardError(
+            f"Prospective shadow can only run on '{OPERATING_BRANCH}' branch; "
+            f"current branch is '{branch}'."
+        )
+
+    head_commit = _get_head_commit()
+    tag_commit = _get_tag_commit()
+    tag_object_type = _get_tag_object_type()
+    if tag_commit is None or tag_object_type != "tag":
+        raise ProspectiveShadowStartGuardError(
+            f"Prospective shadow requires annotated tag '{OPERATING_TAG}' to resolve."
+        )
+    if head_commit is None:
+        raise ProspectiveShadowStartGuardError("Prospective shadow requires HEAD to resolve.")
+    if head_commit != tag_commit:
+        raise ProspectiveShadowStartGuardError(
+            f"Prospective shadow requires HEAD to match {OPERATING_TAG}^{{commit}}."
+        )
+
+    if not _is_git_clean():
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow requires a clean Git working tree."
+        )
+
+
+def _validate_latest_session_bars(eligible_bars: pd.DataFrame, decision_date: pd.Timestamp) -> None:
+    missing_columns = [
+        column for column in REQUIRED_LATEST_BAR_COLUMNS if column not in eligible_bars.columns
+    ]
+    if missing_columns:
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow latest-session MI-1 bars are missing required columns: "
+            + ", ".join(sorted(missing_columns))
+        )
+
+    latest_session = pd.Timestamp(eligible_bars["session_date"].max()).normalize()
+    if latest_session != decision_date:
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow requires the latest eligible MI-1 session to equal the "
+            f"decision date; latest eligible session is {latest_session.date()} and "
+            f"decision date is {decision_date.date()}."
+        )
+
+    latest = eligible_bars[eligible_bars["session_date"] == decision_date].copy()
+    counts = latest["instrument_id"].value_counts()
+    observed = set(counts.index.astype(str))
+    missing = EXPECTED_MI1_INSTRUMENT_IDS - observed
+    unexpected = observed - EXPECTED_MI1_INSTRUMENT_IDS
+    duplicates = sorted(
+        instrument_id
+        for instrument_id in EXPECTED_MI1_INSTRUMENT_IDS
+        if int(counts.get(instrument_id, 0)) > 1
+    )
+    if missing:
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow latest MI-1 session is missing expected ETFs: "
+            + ", ".join(sorted(missing))
+        )
+    if unexpected:
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow latest MI-1 session contains unexpected instruments: "
+            + ", ".join(sorted(unexpected))
+        )
+    if duplicates:
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow latest MI-1 session has duplicate ETF bars: "
+            + ", ".join(duplicates)
+        )
+
+    required_values = latest[REQUIRED_LATEST_BAR_COLUMNS]
+    null_rows = required_values[required_values.isna().any(axis=1)]
+    if not null_rows.empty:
+        affected = sorted(null_rows["instrument_id"].astype(str).unique().tolist())
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow latest MI-1 session has null required bar values for: "
+            + ", ".join(affected)
+        )
+
+    unverified = latest[latest["availability_evidence_level"] == "unverified"]
+    if not unverified.empty:
+        affected = sorted(unverified["instrument_id"].astype(str).unique().tolist())
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow latest MI-1 session admitted unverified bars for: "
+            + ", ".join(affected)
+        )
+
+
+def _validate_latest_feature_coverage(
+    feature_panel: pd.DataFrame, decision_date: pd.Timestamp
+) -> None:
+    latest_features = feature_panel[feature_panel["session_date"] == decision_date].copy()
+    predicted_ids = EXPECTED_MI1_INSTRUMENT_IDS - {RISK_FREE_INSTRUMENT_ID}
+    counts = latest_features["instrument_id"].value_counts()
+    observed = set(counts.index.astype(str))
+    missing = predicted_ids - observed
+    duplicates = sorted(
+        instrument_id for instrument_id in predicted_ids if int(counts.get(instrument_id, 0)) > 1
+    )
+    if missing:
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow latest feature panel is missing predicted risk ETFs: "
+            + ", ".join(sorted(missing))
+        )
+    if duplicates:
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow latest feature panel has duplicate predicted risk ETFs: "
+            + ", ".join(duplicates)
+        )
+
+    risk_features = latest_features[latest_features["instrument_id"].isin(predicted_ids)]
+    unavailable = risk_features[~risk_features["feature_available"]]
+    if not unavailable.empty:
+        affected = sorted(unavailable["instrument_id"].astype(str).unique().tolist())
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow latest feature panel is not usable for predicted risk ETFs: "
+            + ", ".join(affected)
+        )
+
+
 def _latest_usable_feature_session(feature_panel: pd.DataFrame) -> pd.Timestamp:
     usable_sessions = feature_panel.loc[feature_panel["feature_available"], "session_date"].dropna()
     if usable_sessions.empty:
@@ -283,10 +480,7 @@ def run_shadow_record(
                 "Prospective shadow requires --start-date auto and --end-date auto; "
                 "historical date ranges are only permitted for historical replay."
             )
-        if _get_git_branch() != "main":
-            raise ValueError("Prospective shadow can only run on 'main' branch.")
-        if not _is_git_clean():
-            raise ValueError("Prospective shadow requires a clean Git working tree.")
+        _validate_prospective_operating_release()
         evidence_class = "prospective_shadow"
         promotion_eligible = True
     elif mode == "historical-replay":
@@ -312,9 +506,6 @@ def run_shadow_record(
     sessions = sorted(eligible_bars["session_date"].unique())
     schedule = _build_schedule(sessions)
 
-    # We filter target panel computation only up to available labels.
-    targets = _calculate_target_returns(eligible_bars, schedule)
-
     if mode == "prospective-shadow":
         decision_date = _resolve_prospective_decision_date(
             start_date=start_date,
@@ -322,6 +513,8 @@ def run_shadow_record(
             feature_panel=feature_panel,
             new_york_now=new_york_now,
         )
+        _validate_latest_session_bars(eligible_bars, decision_date)
+        _validate_latest_feature_coverage(feature_panel, decision_date)
         check_frozen_manifest(mi8_data_root, protocol_manifest)
         start_ts = decision_date
         end_ts = decision_date
@@ -340,6 +533,9 @@ def run_shadow_record(
             end_ts = pd.Timestamp(end_date).normalize()
 
         decision_dates = [s for s in sessions if start_ts <= s <= end_ts]
+
+    # We filter target panel computation only up to available labels.
+    targets = _calculate_target_returns(eligible_bars, schedule)
 
     universe_hash = calculate_hash(dict_to_stable_json(instrument_ids).encode("utf-8"))
     model_version_hash = protocol_manifest["model_version_hash"]

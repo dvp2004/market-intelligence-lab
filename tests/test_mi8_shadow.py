@@ -9,6 +9,9 @@ import pytest
 
 from market_intelligence_lab.cli import main
 from market_intelligence_lab.mi8.shadow_record import (
+    EXPECTED_MI1_INSTRUMENT_IDS,
+    OPERATING_BRANCH,
+    OPERATING_TAG,
     ProspectiveShadowStartGuardError,
     run_shadow_record,
 )
@@ -19,36 +22,63 @@ def mi8_fixture_data(tmp_path: Path) -> Path:
     pass
 
 
-def make_mi1_inputs(end_date: str = "2026-05-01"):
+TEST_HEAD_COMMIT = "abc123"
+
+
+def make_mi1_inputs(
+    end_date: str = "2026-05-01",
+    instruments: list[str] | None = None,
+    missing_latest: str | None = None,
+    duplicate_latest: str | None = None,
+    null_latest: str | None = None,
+    unverified_latest: str | None = None,
+    split_latest: str | None = None,
+):
     # Create simple synthetic DataFrame
     dates = pd.date_range("2024-01-01", end_date, freq="B")
-    instruments = ["mi1_etf_spy", "mi1_etf_bil"]
+    instruments = instruments or sorted(EXPECTED_MI1_INSTRUMENT_IDS)
+    latest = dates.max()
 
     rows = []
     for d in dates:
         for i in instruments:
+            if d == latest and i == missing_latest:
+                continue
             rows.append(
                 {
                     "instrument_id": i,
                     "session_date": d,
+                    "open_raw": 100.0,
                     "close_raw": 100.0,
                     "high_raw": 105.0,
                     "low_raw": 95.0,
                     "volume_raw": 1000.0,
-                    "vendor_adjusted_close": 100.0,
+                    "vendor_adjusted_close": None if d == latest and i == null_latest else 100.0,
                     "available_at_utc": pd.Timestamp(
                         d.strftime("%Y-%m-%d") + " 20:00:00", tz="UTC"
                     ),
-                    "availability_evidence_level": "provider_timestamp_verified",
+                    "availability_evidence_level": "unverified"
+                    if d == latest and i == unverified_latest
+                    else "provider_timestamp_verified",
                     "snapshot_id": "snap_1",
                 }
             )
+    if duplicate_latest is not None:
+        duplicate = next(
+            row
+            for row in rows
+            if row["session_date"] == latest and row["instrument_id"] == duplicate_latest
+        ).copy()
+        rows.append(duplicate)
     bars = pd.DataFrame(rows)
+    corporate_actions = pd.DataFrame(columns=["instrument_id", "session_date", "action_type"])
+    if split_latest is not None:
+        corporate_actions = pd.DataFrame(
+            [{"instrument_id": split_latest, "session_date": latest, "action_type": "split"}]
+        )
     return {
         "market_eod_bar": bars,
-        "corporate_action_event": pd.DataFrame(
-            columns=["instrument_id", "session_date", "action_type"]
-        ),
+        "corporate_action_event": corporate_actions,
         "coverage_audit": pd.DataFrame(
             [{"instrument_id": i, "start_date_eligible": True} for i in instruments]
         ),
@@ -61,6 +91,7 @@ def make_mi1_inputs(end_date: str = "2026-05-01"):
                 }
                 for d in dates
                 for i in instruments
+                if not (d == latest and i == missing_latest)
             ]
         ),
     }
@@ -75,6 +106,57 @@ def read_manifest_entries(mi8_root: Path) -> list[dict]:
     return [json.loads(line) for line in manifest_file.read_text().splitlines()]
 
 
+def assert_no_mi8_artifacts(mi8_root: Path, report_root: Path) -> None:
+    assert not (mi8_root / "manifests" / "frozen_protocol_manifest.json").exists()
+    assert not (mi8_root / "ledger" / "prediction_batch_manifest.jsonl").exists()
+    assert not (report_root / "mi8_shadow_recording_summary.json").exists()
+    assert not (report_root / "mi8_shadow_recording_summary.md").exists()
+
+
+def run_prospective_with_patches(
+    *,
+    tmp_path: Path,
+    inputs: dict | None = None,
+    branch: str = OPERATING_BRANCH,
+    head_commit: str | None = TEST_HEAD_COMMIT,
+    tag_commit: str | None = TEST_HEAD_COMMIT,
+    tag_object_type: str | None = "tag",
+    clean: bool = True,
+    now: pd.Timestamp | None = None,
+    start_date: str = "auto",
+    end_date: str = "auto",
+    mi8_root: Path | None = None,
+    report_root: Path | None = None,
+) -> tuple[Path, Path]:
+    mi8_root = mi8_root or tmp_path / "mi8"
+    report_root = report_root or tmp_path / "reports"
+    inputs = inputs or make_mi1_inputs("2026-05-01")
+    now = now or pd.Timestamp("2026-05-01T20:00:00", tz="America/New_York")
+    with (
+        patch("market_intelligence_lab.mi8.shadow_record.load_mi1_inputs", return_value=inputs),
+        patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value=branch),
+        patch(
+            "market_intelligence_lab.mi8.shadow_record._get_head_commit", return_value=head_commit
+        ),
+        patch("market_intelligence_lab.mi8.shadow_record._get_tag_commit", return_value=tag_commit),
+        patch(
+            "market_intelligence_lab.mi8.shadow_record._get_tag_object_type",
+            return_value=tag_object_type,
+        ),
+        patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=clean),
+    ):
+        run_shadow_record(
+            mode="prospective-shadow",
+            start_date=start_date,
+            end_date=end_date,
+            mi1_data_root=tmp_path / "mi1",
+            mi8_data_root=mi8_root,
+            report_root=report_root,
+            new_york_now=now,
+        )
+    return mi8_root, report_root
+
+
 def test_mi8_package_import():
     import market_intelligence_lab.mi8
 
@@ -83,13 +165,26 @@ def test_mi8_package_import():
 
 @patch("market_intelligence_lab.mi8.shadow_record.load_mi1_inputs", side_effect=mock_load_mi1)
 @patch("market_intelligence_lab.mi8.outcome_maturity.load_mi1_inputs", side_effect=mock_load_mi1)
-@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
+@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value=OPERATING_BRANCH)
+@patch("market_intelligence_lab.mi8.shadow_record._get_head_commit", return_value=TEST_HEAD_COMMIT)
+@patch("market_intelligence_lab.mi8.shadow_record._get_tag_commit", return_value=TEST_HEAD_COMMIT)
+@patch("market_intelligence_lab.mi8.shadow_record._get_tag_object_type", return_value="tag")
 @patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
 @patch(
     "market_intelligence_lab.mi8.shadow_record._current_new_york_timestamp",
     return_value=pd.Timestamp("2026-05-01T20:00:00", tz="America/New_York"),
 )
-def test_mi8_end_to_end(mock_clock, mock_clean, mock_branch, mock_load2, mock_load, tmp_path: Path):
+def test_mi8_end_to_end(
+    mock_clock,
+    mock_clean,
+    mock_tag_type,
+    mock_tag,
+    mock_head,
+    mock_branch,
+    mock_load2,
+    mock_load,
+    tmp_path: Path,
+):
     mi1_root = tmp_path / "mi1"
     mi8_root = tmp_path / "mi8"
     report_root = tmp_path / "report"
@@ -290,32 +385,80 @@ def test_mi8_end_to_end(mock_clock, mock_clean, mock_branch, mock_load2, mock_lo
     assert out.returncode == 1
 
 
-@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
-@patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
-@patch(
-    "market_intelligence_lab.mi8.shadow_record.load_mi1_inputs",
-    return_value=make_mi1_inputs("2026-05-01"),
-)
-def test_prospective_shadow_writes_one_current_decision_date(
-    mock_load, mock_clean, mock_branch, tmp_path: Path
-):
+def test_prospective_shadow_rejects_main_branch_before_outputs(tmp_path: Path):
     mi8_root = tmp_path / "mi8"
     report_root = tmp_path / "reports"
+    with pytest.raises(ProspectiveShadowStartGuardError, match=OPERATING_BRANCH):
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
+            branch="main",
+            mi8_root=mi8_root,
+            report_root=report_root,
+        )
+    assert_no_mi8_artifacts(mi8_root, report_root)
 
-    run_shadow_record(
-        mode="prospective-shadow",
-        start_date="auto",
-        end_date="auto",
-        mi1_data_root=tmp_path / "mi1",
-        mi8_data_root=mi8_root,
-        report_root=report_root,
-        new_york_now=pd.Timestamp("2026-05-01T20:00:00", tz="America/New_York"),
-    )
+
+def test_prospective_shadow_rejects_non_operating_branch_before_outputs(tmp_path: Path):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
+    with pytest.raises(ProspectiveShadowStartGuardError, match=OPERATING_BRANCH):
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
+            branch="feature/other",
+            mi8_root=mi8_root,
+            report_root=report_root,
+        )
+    assert_no_mi8_artifacts(mi8_root, report_root)
+
+
+def test_prospective_shadow_rejects_missing_operating_tag_before_outputs(tmp_path: Path):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
+    with pytest.raises(ProspectiveShadowStartGuardError, match=OPERATING_TAG):
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
+            tag_commit=None,
+            tag_object_type=None,
+            mi8_root=mi8_root,
+            report_root=report_root,
+        )
+    assert_no_mi8_artifacts(mi8_root, report_root)
+
+
+def test_prospective_shadow_rejects_branch_tag_head_mismatch_before_outputs(tmp_path: Path):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
+    with pytest.raises(ProspectiveShadowStartGuardError, match="requires HEAD to match"):
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
+            head_commit="abc123",
+            tag_commit="def456",
+            mi8_root=mi8_root,
+            report_root=report_root,
+        )
+    assert_no_mi8_artifacts(mi8_root, report_root)
+
+
+def test_prospective_shadow_rejects_lightweight_tag_before_outputs(tmp_path: Path):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
+    with pytest.raises(ProspectiveShadowStartGuardError, match="annotated tag"):
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
+            tag_object_type="commit",
+            mi8_root=mi8_root,
+            report_root=report_root,
+        )
+    assert_no_mi8_artifacts(mi8_root, report_root)
+
+
+def test_prospective_shadow_valid_release_writes_one_decision_date(tmp_path: Path):
+    mi8_root, report_root = run_prospective_with_patches(tmp_path=tmp_path)
 
     manifests = read_manifest_entries(mi8_root)
-    decision_dates = {entry["decision_date"] for entry in manifests}
-    assert decision_dates == {"2026-05-01"}
+    assert {entry["decision_date"] for entry in manifests} == {"2026-05-01"}
     assert {entry["target_horizon"] for entry in manifests} == {1, 5, 20}
+    assert len(manifests) == 3
     for entry in manifests:
         assert entry["mode"] == "prospective_shadow"
         assert entry["evidence_class"] == "prospective_shadow"
@@ -328,110 +471,127 @@ def test_prospective_shadow_writes_one_current_decision_date(
 
     report = json.loads((report_root / "mi8_shadow_recording_summary.json").read_text())
     assert report["decision_date_range"] == "2026-05-01 to 2026-05-01"
+    assert report["new_batches"] == 3
 
 
-@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
-@patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
-@patch(
-    "market_intelligence_lab.mi8.shadow_record.load_mi1_inputs",
-    return_value=make_mi1_inputs("2026-05-01"),
-)
-def test_prospective_shadow_rejects_stale_latest_feature_date_without_writes(
-    mock_load, mock_clean, mock_branch, tmp_path: Path
-):
+def test_prospective_shadow_rejects_missing_latest_session_etf_before_outputs(tmp_path: Path):
     mi8_root = tmp_path / "mi8"
     report_root = tmp_path / "reports"
-
-    with pytest.raises(ProspectiveShadowStartGuardError, match="decision date must equal"):
-        run_shadow_record(
-            mode="prospective-shadow",
-            start_date="auto",
-            end_date="auto",
-            mi1_data_root=tmp_path / "mi1",
-            mi8_data_root=mi8_root,
+    inputs = make_mi1_inputs("2026-05-01", missing_latest="mi1_etf_spy")
+    with pytest.raises(ProspectiveShadowStartGuardError, match="missing expected ETFs"):
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
+            inputs=inputs,
+            mi8_root=mi8_root,
             report_root=report_root,
-            new_york_now=pd.Timestamp("2026-05-04T20:00:00", tz="America/New_York"),
         )
-
-    assert not (mi8_root / "ledger" / "prediction_batch_manifest.jsonl").exists()
-    assert not (report_root / "mi8_shadow_recording_summary.json").exists()
+    assert_no_mi8_artifacts(mi8_root, report_root)
 
 
-@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
-@patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
-@patch(
-    "market_intelligence_lab.mi8.shadow_record.load_mi1_inputs",
-    return_value=make_mi1_inputs("2026-05-01"),
+def test_prospective_shadow_rejects_duplicate_latest_session_etf_before_outputs(tmp_path: Path):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
+    inputs = make_mi1_inputs("2026-05-01", duplicate_latest="mi1_etf_spy")
+    with pytest.raises(ProspectiveShadowStartGuardError, match="duplicate ETF bars"):
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
+            inputs=inputs,
+            mi8_root=mi8_root,
+            report_root=report_root,
+        )
+    assert_no_mi8_artifacts(mi8_root, report_root)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"null_latest": "mi1_etf_spy"}, "null required bar values"),
+        ({"unverified_latest": "mi1_etf_spy"}, "Unverified MI-1 bar"),
+    ],
 )
-def test_prospective_shadow_rejects_before_new_york_cutoff_without_writes(
-    mock_load, mock_clean, mock_branch, tmp_path: Path
+def test_prospective_shadow_rejects_invalid_latest_session_bar_before_outputs(
+    kwargs, message, tmp_path: Path
 ):
     mi8_root = tmp_path / "mi8"
     report_root = tmp_path / "reports"
+    inputs = make_mi1_inputs("2026-05-01", **kwargs)
+    with pytest.raises(ValueError, match=message):
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
+            inputs=inputs,
+            mi8_root=mi8_root,
+            report_root=report_root,
+        )
+    assert_no_mi8_artifacts(mi8_root, report_root)
 
+
+def test_prospective_shadow_rejects_incomplete_feature_coverage_before_outputs(tmp_path: Path):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
+    inputs = make_mi1_inputs("2026-05-01", split_latest="mi1_etf_spy")
+    with pytest.raises(ProspectiveShadowStartGuardError, match="not usable"):
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
+            inputs=inputs,
+            mi8_root=mi8_root,
+            report_root=report_root,
+        )
+    assert_no_mi8_artifacts(mi8_root, report_root)
+
+
+def test_prospective_shadow_rejects_before_new_york_cutoff_without_writes(tmp_path: Path):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
     with pytest.raises(ProspectiveShadowStartGuardError, match="at or after 20:00"):
-        run_shadow_record(
-            mode="prospective-shadow",
-            start_date="auto",
-            end_date="auto",
-            mi1_data_root=tmp_path / "mi1",
-            mi8_data_root=mi8_root,
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
+            now=pd.Timestamp("2026-05-01T19:59:59", tz="America/New_York"),
+            mi8_root=mi8_root,
             report_root=report_root,
-            new_york_now=pd.Timestamp("2026-05-01T19:59:59", tz="America/New_York"),
         )
-
-    assert not (mi8_root / "ledger" / "prediction_batch_manifest.jsonl").exists()
-    assert not (report_root / "mi8_shadow_recording_summary.json").exists()
+    assert_no_mi8_artifacts(mi8_root, report_root)
 
 
-@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
-@patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
-@patch(
-    "market_intelligence_lab.mi8.shadow_record.load_mi1_inputs",
-    return_value=make_mi1_inputs("2026-05-01"),
-)
-def test_prospective_shadow_rejects_explicit_date_range_without_writes(
-    mock_load, mock_clean, mock_branch, tmp_path: Path
-):
+def test_prospective_shadow_rejects_explicit_date_range_without_writes(tmp_path: Path):
     mi8_root = tmp_path / "mi8"
     report_root = tmp_path / "reports"
-
     with pytest.raises(ProspectiveShadowStartGuardError, match="requires --start-date auto"):
-        run_shadow_record(
-            mode="prospective-shadow",
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
             start_date="2026-05-01",
-            end_date="auto",
-            mi1_data_root=tmp_path / "mi1",
-            mi8_data_root=mi8_root,
+            mi8_root=mi8_root,
             report_root=report_root,
-            new_york_now=pd.Timestamp("2026-05-01T20:00:00", tz="America/New_York"),
         )
-
-    assert not mi8_root.exists()
-    assert not report_root.exists()
+    assert_no_mi8_artifacts(mi8_root, report_root)
 
 
-@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
-@patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
-@patch(
-    "market_intelligence_lab.mi8.shadow_record.load_mi1_inputs",
-    return_value=make_mi1_inputs("2026-05-01"),
+@pytest.mark.parametrize(
+    "now",
+    [
+        pd.Timestamp("2026-05-02T20:00:00", tz="America/New_York"),
+        pd.Timestamp("2026-05-04T20:00:00", tz="America/New_York"),
+    ],
 )
-def test_prospective_shadow_rerun_is_noop(mock_load, mock_clean, mock_branch, tmp_path: Path):
+def test_prospective_shadow_rejects_non_current_data_and_never_backfills(now, tmp_path: Path):
     mi8_root = tmp_path / "mi8"
     report_root = tmp_path / "reports"
-    kwargs = {
-        "mode": "prospective-shadow",
-        "start_date": "auto",
-        "end_date": "auto",
-        "mi1_data_root": tmp_path / "mi1",
-        "mi8_data_root": mi8_root,
-        "report_root": report_root,
-        "new_york_now": pd.Timestamp("2026-05-01T20:00:00", tz="America/New_York"),
-    }
+    with pytest.raises(ProspectiveShadowStartGuardError, match="decision date must equal"):
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
+            now=now,
+            mi8_root=mi8_root,
+            report_root=report_root,
+        )
+    assert_no_mi8_artifacts(mi8_root, report_root)
 
-    run_shadow_record(**kwargs)
-    run_shadow_record(**kwargs)
+
+def test_prospective_shadow_rerun_is_noop(tmp_path: Path):
+    mi8_root, report_root = run_prospective_with_patches(tmp_path=tmp_path)
+    run_prospective_with_patches(
+        tmp_path=tmp_path,
+        mi8_root=mi8_root,
+        report_root=report_root,
+    )
 
     report = json.loads((report_root / "mi8_shadow_recording_summary.json").read_text())
     assert report["new_batches"] == 0
@@ -439,28 +599,8 @@ def test_prospective_shadow_rerun_is_noop(mock_load, mock_clean, mock_branch, tm
     assert report["conflicts"] == 0
 
 
-@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
-@patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
-@patch(
-    "market_intelligence_lab.mi8.shadow_record.load_mi1_inputs",
-    return_value=make_mi1_inputs("2026-05-01"),
-)
-def test_prospective_shadow_existing_identity_with_different_payload_conflicts(
-    mock_load, mock_clean, mock_branch, tmp_path: Path
-):
-    mi8_root = tmp_path / "mi8"
-    report_root = tmp_path / "reports"
-    kwargs = {
-        "mode": "prospective-shadow",
-        "start_date": "auto",
-        "end_date": "auto",
-        "mi1_data_root": tmp_path / "mi1",
-        "mi8_data_root": mi8_root,
-        "report_root": report_root,
-        "new_york_now": pd.Timestamp("2026-05-01T20:00:00", tz="America/New_York"),
-    }
-
-    run_shadow_record(**kwargs)
+def test_prospective_shadow_existing_identity_with_different_payload_conflicts(tmp_path: Path):
+    mi8_root, report_root = run_prospective_with_patches(tmp_path=tmp_path)
     first_entry = read_manifest_entries(mi8_root)[0]
     batch_path = mi8_root / first_entry["batch_path"]
     batch = pd.read_parquet(batch_path)
@@ -468,4 +608,8 @@ def test_prospective_shadow_existing_identity_with_different_payload_conflicts(
     batch.to_parquet(batch_path, index=False)
 
     with pytest.raises(RuntimeError, match="Conflict error"):
-        run_shadow_record(**kwargs)
+        run_prospective_with_patches(
+            tmp_path=tmp_path,
+            mi8_root=mi8_root,
+            report_root=report_root,
+        )
