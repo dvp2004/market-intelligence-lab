@@ -4,6 +4,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -17,6 +18,12 @@ from market_intelligence_lab.mi2.technical_baseline import (
     load_mi1_inputs,
     validate_mi1_contract,
 )
+
+NEW_YORK_TZ = ZoneInfo("America/New_York")
+
+
+class ProspectiveShadowStartGuardError(ValueError):
+    """Raised when a prospective shadow run would not be a valid live record."""
 
 
 def _normalize_dates(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
@@ -95,6 +102,10 @@ def build_protocol_manifest() -> dict[str, Any]:
         "code_version_hash": _get_code_version_hash(),
         "model_version_hash": _get_model_version_hash(),
     }
+
+
+def _current_new_york_timestamp() -> pd.Timestamp:
+    return pd.Timestamp.now(tz=NEW_YORK_TZ)
 
 
 def check_frozen_manifest(mi8_data_root: Path, current_manifest: dict[str, Any]) -> None:
@@ -207,6 +218,56 @@ def _calculate_target_returns(
     return pd.DataFrame(rows)
 
 
+def _latest_usable_feature_session(feature_panel: pd.DataFrame) -> pd.Timestamp:
+    usable_sessions = feature_panel.loc[feature_panel["feature_available"], "session_date"].dropna()
+    if usable_sessions.empty:
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow requires at least one usable frozen feature-panel session."
+        )
+    return pd.Timestamp(usable_sessions.max()).normalize()
+
+
+def _resolve_prospective_decision_date(
+    *,
+    start_date: str,
+    end_date: str,
+    feature_panel: pd.DataFrame,
+    new_york_now: pd.Timestamp | None = None,
+) -> pd.Timestamp:
+    if start_date != "auto" or end_date != "auto":
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow requires --start-date auto and --end-date auto; "
+            "historical date ranges are only permitted for historical replay."
+        )
+
+    decision_date = _latest_usable_feature_session(feature_panel)
+    now_ny = (
+        pd.Timestamp(new_york_now) if new_york_now is not None else _current_new_york_timestamp()
+    )
+    if now_ny.tzinfo is None:
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow clock must be timezone-aware in America/New_York."
+        )
+    now_ny = now_ny.tz_convert(NEW_YORK_TZ)
+
+    current_ny_date = now_ny.normalize()
+    if decision_date.date() != current_ny_date.date():
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow decision date must equal the current America/New_York "
+            f"calendar date; latest usable feature date is {decision_date.date()} and "
+            f"current New York date is {current_ny_date.date()}."
+        )
+
+    cutoff = pd.Timestamp(f"{now_ny.date()} 20:00:00", tz=NEW_YORK_TZ)
+    if now_ny < cutoff:
+        raise ProspectiveShadowStartGuardError(
+            "Prospective shadow may only run at or after 20:00 America/New_York "
+            f"on the decision date; current New York time is {now_ny.isoformat()}."
+        )
+
+    return decision_date
+
+
 def run_shadow_record(
     mode: str,
     start_date: str,
@@ -214,8 +275,14 @@ def run_shadow_record(
     mi1_data_root: Path,
     mi8_data_root: Path,
     report_root: Path,
+    new_york_now: pd.Timestamp | None = None,
 ) -> None:
     if mode == "prospective-shadow":
+        if start_date != "auto" or end_date != "auto":
+            raise ProspectiveShadowStartGuardError(
+                "Prospective shadow requires --start-date auto and --end-date auto; "
+                "historical date ranges are only permitted for historical replay."
+            )
         if _get_git_branch() != "main":
             raise ValueError("Prospective shadow can only run on 'main' branch.")
         if not _is_git_clean():
@@ -229,8 +296,6 @@ def run_shadow_record(
         raise ValueError(f"Unknown mode: {mode}")
 
     protocol_manifest = build_protocol_manifest()
-    if mode == "prospective-shadow":
-        check_frozen_manifest(mi8_data_root, protocol_manifest)
 
     inputs = load_mi1_inputs(mi1_data_root)
     eligible_bars = validate_mi1_contract(inputs)
@@ -250,19 +315,31 @@ def run_shadow_record(
     # We filter target panel computation only up to available labels.
     targets = _calculate_target_returns(eligible_bars, schedule)
 
-    if start_date != "auto":
-        start_ts = pd.Timestamp(start_date).normalize()
+    if mode == "prospective-shadow":
+        decision_date = _resolve_prospective_decision_date(
+            start_date=start_date,
+            end_date=end_date,
+            feature_panel=feature_panel,
+            new_york_now=new_york_now,
+        )
+        check_frozen_manifest(mi8_data_root, protocol_manifest)
+        start_ts = decision_date
+        end_ts = decision_date
+        decision_dates = [decision_date]
     else:
-        start_ts = pd.Timestamp("2026-01-01").normalize()
+        if start_date != "auto":
+            start_ts = pd.Timestamp(start_date).normalize()
+        else:
+            start_ts = pd.Timestamp("2026-01-01").normalize()
 
-    if end_date == "auto":
-        # "use the latest complete eligible decision date available in MI-1 data"
-        # That means a date where features are available.
-        end_ts = feature_panel["session_date"].max()
-    else:
-        end_ts = pd.Timestamp(end_date).normalize()
+        if end_date == "auto":
+            # "use the latest complete eligible decision date available in MI-1 data"
+            # That means a date where features are available.
+            end_ts = feature_panel["session_date"].max()
+        else:
+            end_ts = pd.Timestamp(end_date).normalize()
 
-    decision_dates = [s for s in sessions if start_ts <= s <= end_ts]
+        decision_dates = [s for s in sessions if start_ts <= s <= end_ts]
 
     universe_hash = calculate_hash(dict_to_stable_json(instrument_ids).encode("utf-8"))
     model_version_hash = protocol_manifest["model_version_hash"]

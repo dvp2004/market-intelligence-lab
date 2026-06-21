@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -7,6 +8,10 @@ import pandas as pd
 import pytest
 
 from market_intelligence_lab.cli import main
+from market_intelligence_lab.mi8.shadow_record import (
+    ProspectiveShadowStartGuardError,
+    run_shadow_record,
+)
 
 
 @pytest.fixture
@@ -14,9 +19,9 @@ def mi8_fixture_data(tmp_path: Path) -> Path:
     pass
 
 
-def mock_load_mi1(root):
+def make_mi1_inputs(end_date: str = "2026-05-01"):
     # Create simple synthetic DataFrame
-    dates = pd.date_range("2024-01-01", "2026-05-01", freq="B")
+    dates = pd.date_range("2024-01-01", end_date, freq="B")
     instruments = ["mi1_etf_spy", "mi1_etf_bil"]
 
     rows = []
@@ -61,6 +66,15 @@ def mock_load_mi1(root):
     }
 
 
+def mock_load_mi1(root):
+    return make_mi1_inputs()
+
+
+def read_manifest_entries(mi8_root: Path) -> list[dict]:
+    manifest_file = mi8_root / "ledger" / "prediction_batch_manifest.jsonl"
+    return [json.loads(line) for line in manifest_file.read_text().splitlines()]
+
+
 def test_mi8_package_import():
     import market_intelligence_lab.mi8
 
@@ -71,7 +85,11 @@ def test_mi8_package_import():
 @patch("market_intelligence_lab.mi8.outcome_maturity.load_mi1_inputs", side_effect=mock_load_mi1)
 @patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
 @patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
-def test_mi8_end_to_end(mock_clean, mock_branch, mock_load2, mock_load, tmp_path: Path):
+@patch(
+    "market_intelligence_lab.mi8.shadow_record._current_new_york_timestamp",
+    return_value=pd.Timestamp("2026-05-01T20:00:00", tz="America/New_York"),
+)
+def test_mi8_end_to_end(mock_clock, mock_clean, mock_branch, mock_load2, mock_load, tmp_path: Path):
     mi1_root = tmp_path / "mi1"
     mi8_root = tmp_path / "mi8"
     report_root = tmp_path / "report"
@@ -254,8 +272,6 @@ def test_mi8_end_to_end(mock_clean, mock_branch, mock_load2, mock_load, tmp_path
     assert "data/private/mi8/" in gitignore
     assert "reports/mi8/" in gitignore
 
-    import subprocess
-
     out = subprocess.run(
         ["git", "check-ignore", "data/private/mi8/test.parquet"], capture_output=True, text=True
     )
@@ -272,3 +288,184 @@ def test_mi8_end_to_end(mock_clean, mock_branch, mock_load2, mock_load, tmp_path
         ["git", "check-ignore", "reports/mi8/.gitkeep"], capture_output=True, text=True
     )
     assert out.returncode == 1
+
+
+@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
+@patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
+@patch(
+    "market_intelligence_lab.mi8.shadow_record.load_mi1_inputs",
+    return_value=make_mi1_inputs("2026-05-01"),
+)
+def test_prospective_shadow_writes_one_current_decision_date(
+    mock_load, mock_clean, mock_branch, tmp_path: Path
+):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
+
+    run_shadow_record(
+        mode="prospective-shadow",
+        start_date="auto",
+        end_date="auto",
+        mi1_data_root=tmp_path / "mi1",
+        mi8_data_root=mi8_root,
+        report_root=report_root,
+        new_york_now=pd.Timestamp("2026-05-01T20:00:00", tz="America/New_York"),
+    )
+
+    manifests = read_manifest_entries(mi8_root)
+    decision_dates = {entry["decision_date"] for entry in manifests}
+    assert decision_dates == {"2026-05-01"}
+    assert {entry["target_horizon"] for entry in manifests} == {1, 5, 20}
+    for entry in manifests:
+        assert entry["mode"] == "prospective_shadow"
+        assert entry["evidence_class"] == "prospective_shadow"
+        assert entry["promotion_eligible"]
+        assert set(entry["model_ids"]) == {
+            "zero_forward_excess_return",
+            "persistence_last_observed_return",
+            "ridge_technical_only_alpha_1_0",
+        }
+
+    report = json.loads((report_root / "mi8_shadow_recording_summary.json").read_text())
+    assert report["decision_date_range"] == "2026-05-01 to 2026-05-01"
+
+
+@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
+@patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
+@patch(
+    "market_intelligence_lab.mi8.shadow_record.load_mi1_inputs",
+    return_value=make_mi1_inputs("2026-05-01"),
+)
+def test_prospective_shadow_rejects_stale_latest_feature_date_without_writes(
+    mock_load, mock_clean, mock_branch, tmp_path: Path
+):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
+
+    with pytest.raises(ProspectiveShadowStartGuardError, match="decision date must equal"):
+        run_shadow_record(
+            mode="prospective-shadow",
+            start_date="auto",
+            end_date="auto",
+            mi1_data_root=tmp_path / "mi1",
+            mi8_data_root=mi8_root,
+            report_root=report_root,
+            new_york_now=pd.Timestamp("2026-05-04T20:00:00", tz="America/New_York"),
+        )
+
+    assert not (mi8_root / "ledger" / "prediction_batch_manifest.jsonl").exists()
+    assert not (report_root / "mi8_shadow_recording_summary.json").exists()
+
+
+@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
+@patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
+@patch(
+    "market_intelligence_lab.mi8.shadow_record.load_mi1_inputs",
+    return_value=make_mi1_inputs("2026-05-01"),
+)
+def test_prospective_shadow_rejects_before_new_york_cutoff_without_writes(
+    mock_load, mock_clean, mock_branch, tmp_path: Path
+):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
+
+    with pytest.raises(ProspectiveShadowStartGuardError, match="at or after 20:00"):
+        run_shadow_record(
+            mode="prospective-shadow",
+            start_date="auto",
+            end_date="auto",
+            mi1_data_root=tmp_path / "mi1",
+            mi8_data_root=mi8_root,
+            report_root=report_root,
+            new_york_now=pd.Timestamp("2026-05-01T19:59:59", tz="America/New_York"),
+        )
+
+    assert not (mi8_root / "ledger" / "prediction_batch_manifest.jsonl").exists()
+    assert not (report_root / "mi8_shadow_recording_summary.json").exists()
+
+
+@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
+@patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
+@patch(
+    "market_intelligence_lab.mi8.shadow_record.load_mi1_inputs",
+    return_value=make_mi1_inputs("2026-05-01"),
+)
+def test_prospective_shadow_rejects_explicit_date_range_without_writes(
+    mock_load, mock_clean, mock_branch, tmp_path: Path
+):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
+
+    with pytest.raises(ProspectiveShadowStartGuardError, match="requires --start-date auto"):
+        run_shadow_record(
+            mode="prospective-shadow",
+            start_date="2026-05-01",
+            end_date="auto",
+            mi1_data_root=tmp_path / "mi1",
+            mi8_data_root=mi8_root,
+            report_root=report_root,
+            new_york_now=pd.Timestamp("2026-05-01T20:00:00", tz="America/New_York"),
+        )
+
+    assert not mi8_root.exists()
+    assert not report_root.exists()
+
+
+@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
+@patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
+@patch(
+    "market_intelligence_lab.mi8.shadow_record.load_mi1_inputs",
+    return_value=make_mi1_inputs("2026-05-01"),
+)
+def test_prospective_shadow_rerun_is_noop(mock_load, mock_clean, mock_branch, tmp_path: Path):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
+    kwargs = {
+        "mode": "prospective-shadow",
+        "start_date": "auto",
+        "end_date": "auto",
+        "mi1_data_root": tmp_path / "mi1",
+        "mi8_data_root": mi8_root,
+        "report_root": report_root,
+        "new_york_now": pd.Timestamp("2026-05-01T20:00:00", tz="America/New_York"),
+    }
+
+    run_shadow_record(**kwargs)
+    run_shadow_record(**kwargs)
+
+    report = json.loads((report_root / "mi8_shadow_recording_summary.json").read_text())
+    assert report["new_batches"] == 0
+    assert report["no_op_batches"] == 3
+    assert report["conflicts"] == 0
+
+
+@patch("market_intelligence_lab.mi8.shadow_record._get_git_branch", return_value="main")
+@patch("market_intelligence_lab.mi8.shadow_record._is_git_clean", return_value=True)
+@patch(
+    "market_intelligence_lab.mi8.shadow_record.load_mi1_inputs",
+    return_value=make_mi1_inputs("2026-05-01"),
+)
+def test_prospective_shadow_existing_identity_with_different_payload_conflicts(
+    mock_load, mock_clean, mock_branch, tmp_path: Path
+):
+    mi8_root = tmp_path / "mi8"
+    report_root = tmp_path / "reports"
+    kwargs = {
+        "mode": "prospective-shadow",
+        "start_date": "auto",
+        "end_date": "auto",
+        "mi1_data_root": tmp_path / "mi1",
+        "mi8_data_root": mi8_root,
+        "report_root": report_root,
+        "new_york_now": pd.Timestamp("2026-05-01T20:00:00", tz="America/New_York"),
+    }
+
+    run_shadow_record(**kwargs)
+    first_entry = read_manifest_entries(mi8_root)[0]
+    batch_path = mi8_root / first_entry["batch_path"]
+    batch = pd.read_parquet(batch_path)
+    batch.loc[0, "prediction_value"] = batch.loc[0, "prediction_value"] + 1.0
+    batch.to_parquet(batch_path, index=False)
+
+    with pytest.raises(RuntimeError, match="Conflict error"):
+        run_shadow_record(**kwargs)
