@@ -155,6 +155,31 @@ Outputs:
 
 MI-5 does not train a forecast model, form a portfolio, create a candidate signal, make a promotion claim, or use an LLM.
 
+## MI-6 BLS release source qualification
+
+MI-6 is a source-qualification-only phase for official BLS CPI and Employment Situation
+release HTML. It qualifies whether official release documents provide enough verified embargo
+timestamp evidence for a later forecast-research phase. It does not train a model, calculate
+returns, form a portfolio, create a candidate signal, make a trading claim, or use an LLM.
+
+```powershell
+python -m market_intelligence_lab.cli run-mi6-bls-release-qualification `
+  --mi6-data-root data/private/mi6 `
+  --report-root reports/mi6
+```
+
+Outputs:
+
+- `data/private/mi6/raw/`
+- `data/private/mi6/manifests/bls_raw_snapshot_manifest.parquet`
+- `data/private/mi6/normalized/bls_release_event.parquet`
+- `reports/mi6/bls_release_source_qualification.md`
+- `reports/mi6/bls_release_source_qualification.json`
+
+MI-6 treats the actual fetched release HTML document as timestamp authority. A BLS event is
+usable only when the release document itself contains an explicit date, time, and Eastern-time
+designation, and usable rows are labelled `provider_timestamp_verified`.
+
 ## Start here
 
 - `docs/continuation_map.md`

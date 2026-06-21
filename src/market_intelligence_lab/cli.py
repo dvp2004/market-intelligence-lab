@@ -15,6 +15,9 @@ from market_intelligence_lab.mi4.tree_technical_comparator import (
     run_mi4_tree_technical_comparator,
 )
 from market_intelligence_lab.mi5.fomc_event_text import run_mi5_fomc_event_text_foundation
+from market_intelligence_lab.mi6.bls_release_qualification import (
+    run_mi6_bls_release_qualification,
+)
 from market_intelligence_lab.quality.validation import DataQualityError
 
 
@@ -109,6 +112,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--universe-config",
         type=Path,
         default=Path("configs/universe_mi1.yaml"),
+    )
+    mi6 = subparsers.add_parser(
+        "run-mi6-bls-release-qualification",
+        help="Run the research-only MI-6 BLS release source qualification.",
+    )
+    mi6.add_argument("--mi6-data-root", type=Path, required=True)
+    mi6.add_argument("--report-root", type=Path, required=True)
+    mi6.add_argument(
+        "--event-source-config",
+        type=Path,
+        default=Path("configs/event_source_mi6.yaml"),
     )
     return parser
 
@@ -278,6 +292,35 @@ def main() -> None:
             f"standalone_predictive_model_eligible: {result.standalone_predictive_model_eligible}"
         )
         print(f"event_window_row_count: {result.event_window_row_count}")
+        print("output_paths:")
+        for name, path in result.output_paths.items():
+            print(f"  {name}: {path}")
+        return
+
+    if args.command == "run-mi6-bls-release-qualification":
+        result = run_mi6_bls_release_qualification(
+            mi6_data_root=args.mi6_data_root,
+            report_root=args.report_root,
+            config_path=args.event_source_config,
+        )
+        print(f"source_id: {result.source_id}")
+        print(f"source_access_status: {result.source_access_status}")
+        if result.source_access_diagnostics:
+            print("source_access_diagnostics:")
+            for name, value in result.source_access_diagnostics.items():
+                print(f"  {name}: {value}")
+        print("release_type_counts:")
+        for name, count in result.release_type_counts.items():
+            print(f"  {name}: {count}")
+        print(f"usable_timestamped_event_count: {result.usable_timestamped_event_count}")
+        print(f"earliest_usable_timestamp: {result.earliest_usable_timestamp}")
+        print(f"latest_usable_timestamp: {result.latest_usable_timestamp}")
+        print(
+            f"qualified_for_later_forecast_research: {result.qualified_for_later_forecast_research}"
+        )
+        print("qualification_reasons:")
+        for reason in result.qualification_reasons:
+            print(f"  {reason}")
         print("output_paths:")
         for name, path in result.output_paths.items():
             print(f"  {name}: {path}")
