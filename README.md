@@ -132,6 +132,29 @@ Outputs:
 
 If the fixed MI-4 promotion gate fails, do not add further technical model types, parameter sweeps, or technical feature variations. The next research modality is controlled text/event research.
 
+## MI-5 FOMC event/text foundation
+
+MI-5 is a narrow descriptive event/text research slice. It builds a local corpus of official Federal Reserve FOMC statement HTML documents, resolves actual statement publication dates, applies conservative next-session availability, computes deterministic non-LLM lexical descriptors, and studies retrospective adjusted-close event windows across the MI-1 ETF universe.
+
+```powershell
+python -m market_intelligence_lab.cli run-mi5-fomc-event-text-foundation `
+  --mi1-data-root data/private/mi1 `
+  --mi5-data-root data/private/mi5 `
+  --report-root reports/mi5
+```
+
+Outputs:
+
+- `data/private/mi5/raw/`
+- `data/private/mi5/manifests/fomc_raw_snapshot_manifest.parquet`
+- `data/private/mi5/normalized/fomc_statement_event.parquet`
+- `data/private/mi5/fomc_lexical_descriptor.parquet`
+- `data/private/mi5/fomc_event_window_return.parquet`
+- `reports/mi5/fomc_event_text_foundation.md`
+- `reports/mi5/fomc_event_text_foundation.json`
+
+MI-5 does not train a forecast model, form a portfolio, create a candidate signal, make a promotion claim, or use an LLM.
+
 ## Start here
 
 - `docs/continuation_map.md`

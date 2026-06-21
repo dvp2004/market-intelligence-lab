@@ -14,6 +14,7 @@ from market_intelligence_lab.mi3.macro_vintage_forecast import run_mi3_macro_vin
 from market_intelligence_lab.mi4.tree_technical_comparator import (
     run_mi4_tree_technical_comparator,
 )
+from market_intelligence_lab.mi5.fomc_event_text import run_mi5_fomc_event_text_foundation
 from market_intelligence_lab.quality.validation import DataQualityError
 
 
@@ -88,6 +89,23 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("configs/mi2_research_registry.yaml"),
     )
     mi4.add_argument(
+        "--universe-config",
+        type=Path,
+        default=Path("configs/universe_mi1.yaml"),
+    )
+    mi5 = subparsers.add_parser(
+        "run-mi5-fomc-event-text-foundation",
+        help="Run the research-only MI-5 FOMC event/text foundation.",
+    )
+    mi5.add_argument("--mi1-data-root", type=Path, required=True)
+    mi5.add_argument("--mi5-data-root", type=Path, required=True)
+    mi5.add_argument("--report-root", type=Path, required=True)
+    mi5.add_argument(
+        "--event-source-config",
+        type=Path,
+        default=Path("configs/event_source_mi5.yaml"),
+    )
+    mi5.add_argument(
         "--universe-config",
         type=Path,
         default=Path("configs/universe_mi1.yaml"),
@@ -232,6 +250,37 @@ def main() -> None:
                 f"{row['model_name']} | {row['segment']} | mae={row['mae']} | "
                 f"rank_corr={row['rank_correlation']} | {row['promotion_status']}"
             )
+        return
+
+    if args.command == "run-mi5-fomc-event-text-foundation":
+        result = run_mi5_fomc_event_text_foundation(
+            mi1_data_root=args.mi1_data_root,
+            mi5_data_root=args.mi5_data_root,
+            report_root=args.report_root,
+            config_path=args.event_source_config,
+            universe_config_path=args.universe_config,
+        )
+        print("mi1_input_provenance:")
+        for name, value in result.mi1_input_provenance.items():
+            print(f"  {name}: {value}")
+        print(f"archive_source_id: {result.archive_source_id}")
+        print(
+            "discovered_coverage: "
+            f"{result.discovered_coverage_start} through {result.discovered_coverage_end}"
+        )
+        print(f"statement_count: {result.statement_count}")
+        print(f"resolved_publication_date_count: {result.resolved_publication_date_count}")
+        print(f"excluded_event_count: {result.excluded_event_count}")
+        print(f"availability_evidence_level: {result.availability_evidence_level}")
+        print(f"lexical_descriptor_row_count: {result.lexical_descriptor_row_count}")
+        print(f"usable_statement_count: {result.usable_statement_count}")
+        print(
+            f"standalone_predictive_model_eligible: {result.standalone_predictive_model_eligible}"
+        )
+        print(f"event_window_row_count: {result.event_window_row_count}")
+        print("output_paths:")
+        for name, path in result.output_paths.items():
+            print(f"  {name}: {path}")
         return
 
     if args.command != "refresh-mi1-market-data":
