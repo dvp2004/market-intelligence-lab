@@ -8,21 +8,34 @@
 - MI-3: complete.
 - MI-4: complete; final technical-model-family comparator.
 - MI-5: complete; FOMC event/text foundation.
-- MI-6: active; final source-qualification-only phase for official BLS CPI and
+- MI-6: complete; final source-qualification-only phase for official BLS CPI and
   Employment Situation release timestamp evidence.
-- MI-7: blocked pending MI-6 acceptance; must be an actual pre-registered BLS
-  release-event forecast test using the MI-6 corpus.
-- MI-8+: not started.
+- MI-7: active; `issuer_event_sidecar` source-qualification track for SEC EDGAR
+  Form 8-K acceptance-time metadata.
+- MI-8+: not started by default; do not add another standalone source-qualification
+  prompt after the one real MI-7 run unless explicitly approved.
 
 MI-4 is the final technical-model-family comparator. If its fixed promotion gate fails, do not add further technical model types, parameter sweeps, or technical feature variations. The next research modality is controlled text/event research.
 
 MI-5 is descriptive event/text research only. It does not create a forecast model, portfolio, candidate signal, promotion claim, or LLM phase.
 
-MI-6 is the final source-qualification-only phase. If MI-6 qualifies, MI-7 must be a
-pre-registered BLS release-event forecast test using the accepted MI-6 corpus. Do not insert
-another source-qualification phase or a generic LLM phase before MI-7. MI-7 must remain
-forecast research only, with no portfolio, candidate packet, broker, or GMA integration.
+MI-6 is source qualification only. If it qualifies, a later BLS release-event forecast test must
+be pre-registered, frozen before a prospective shadow period, and limited to clearly specified
+next-session or multi-session outcomes. Daily EOD ETF data cannot measure the immediate
+8:30 a.m. reaction precisely and must not be used to claim intraday event-capture ability.
 
-MI-7 planning must account for daily EOD ETF data limitations: it cannot measure the immediate
-8:30 a.m. reaction precisely. Any later forecast test must use clearly specified next-session
-or multi-session outcomes and must not claim intraday event-capture ability.
+MI-7 is an `issuer_event_sidecar` source-qualification track, not part of the current 22-ETF
+promotion chain. A successful MI-7 qualification must not automatically lead to an ETF forecast
+model. Before any later 8-K event experiment, choose either an individual-equity research track
+with its own point-in-time stock-price panel or a separately approved time-aware issuer-to-ETF
+exposure mapping based on documented historical holdings data. Without one of those routes,
+MI-7 ends as a reusable data capability only.
+
+The historical MI-2 to MI-4 holdout is now an observed development holdout at programme level.
+Any future promotion requires a model and configuration frozen before a prospective shadow
+evaluation period. No candidate packet can be promoted from repeated historical experimentation
+alone.
+
+GMA remains the actual paper-trading and portfolio-construction track. Market Intelligence Lab
+remains research-only until a source family proves incremental forecast value under a frozen
+prospective protocol.

@@ -180,6 +180,32 @@ MI-6 treats the actual fetched release HTML document as timestamp authority. A B
 usable only when the release document itself contains an explicit date, time, and Eastern-time
 designation, and usable rows are labelled `provider_timestamp_verified`.
 
+## MI-7 SEC EDGAR 8-K acceptance source qualification
+
+MI-7 is an `issuer_event_sidecar` source-qualification track for official SEC EDGAR Form 8-K
+acceptance-time metadata. It is separate from the current 22-ETF promotion chain and does not
+create an ETF forecast model, portfolio, candidate packet, broker integration, or GMA
+integration.
+
+```powershell
+python -m market_intelligence_lab.cli run-mi7-sec-edgar-8k-acceptance-qualification `
+  --mi7-data-root data/private/mi7 `
+  --report-root reports/mi7
+```
+
+Outputs:
+
+- `data/private/mi7/raw/`
+- `data/private/mi7/manifests/sec_edgar_raw_snapshot_manifest.parquet`
+- `data/private/mi7/normalized/sec_edgar_8k_acceptance_event.parquet`
+- `reports/mi7/sec_edgar_8k_acceptance_qualification.md`
+- `reports/mi7/sec_edgar_8k_acceptance_qualification.json`
+
+MI-7 stores metadata only from the official SEC submissions API. It does not retrieve or parse
+filing text. Any later 8-K event experiment requires either an individual-equity research track
+with its own point-in-time stock-price panel or a separately approved time-aware
+issuer-to-ETF exposure mapping based on documented historical holdings data.
+
 ## Start here
 
 - `docs/continuation_map.md`

@@ -57,6 +57,9 @@ logs/
 !/data/private/mi6/
 /data/private/mi6/*
 !/data/private/mi6/.gitkeep
+!/data/private/mi7/
+/data/private/mi7/*
+!/data/private/mi7/.gitkeep
 /reports/mi1/*
 !/reports/mi1/.gitkeep
 /reports/mi2/*
@@ -69,6 +72,8 @@ logs/
 !/reports/mi5/.gitkeep
 /reports/mi6/*
 !/reports/mi6/.gitkeep
+/reports/mi7/*
+!/reports/mi7/.gitkeep
 
 # Editor and operating-system noise
 .vscode/settings.json

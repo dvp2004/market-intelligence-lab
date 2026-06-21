@@ -18,6 +18,9 @@ from market_intelligence_lab.mi5.fomc_event_text import run_mi5_fomc_event_text_
 from market_intelligence_lab.mi6.bls_release_qualification import (
     run_mi6_bls_release_qualification,
 )
+from market_intelligence_lab.mi7.sec_edgar_8k_qualification import (
+    run_mi7_sec_edgar_8k_acceptance_qualification,
+)
 from market_intelligence_lab.quality.validation import DataQualityError
 
 
@@ -123,6 +126,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--event-source-config",
         type=Path,
         default=Path("configs/event_source_mi6.yaml"),
+    )
+    mi7 = subparsers.add_parser(
+        "run-mi7-sec-edgar-8k-acceptance-qualification",
+        help="Run the research-only MI-7 SEC EDGAR 8-K acceptance source qualification.",
+    )
+    mi7.add_argument("--mi7-data-root", type=Path, required=True)
+    mi7.add_argument("--report-root", type=Path, required=True)
+    mi7.add_argument(
+        "--issuer-panel-config",
+        type=Path,
+        default=Path("configs/sec_issuer_panel_mi7.yaml"),
     )
     return parser
 
@@ -317,6 +331,30 @@ def main() -> None:
         print(f"latest_usable_timestamp: {result.latest_usable_timestamp}")
         print(
             f"qualified_for_later_forecast_research: {result.qualified_for_later_forecast_research}"
+        )
+        print("qualification_reasons:")
+        for reason in result.qualification_reasons:
+            print(f"  {reason}")
+        print("output_paths:")
+        for name, path in result.output_paths.items():
+            print(f"  {name}: {path}")
+        return
+
+    if args.command == "run-mi7-sec-edgar-8k-acceptance-qualification":
+        result = run_mi7_sec_edgar_8k_acceptance_qualification(
+            mi7_data_root=args.mi7_data_root,
+            report_root=args.report_root,
+            config_path=args.issuer_panel_config,
+        )
+        print(f"source_id: {result.source_id}")
+        print(f"source_access_status: {result.source_access_status}")
+        print(f"configured_issuer_count: {result.configured_issuer_count}")
+        print(f"eligible_8k_event_count: {result.eligible_8k_event_count}")
+        print(f"earliest_acceptance_timestamp: {result.earliest_acceptance_timestamp}")
+        print(f"latest_acceptance_timestamp: {result.latest_acceptance_timestamp}")
+        print(
+            "qualified_for_later_next_session_event_research: "
+            f"{result.qualified_for_later_next_session_event_research}"
         )
         print("qualification_reasons:")
         for reason in result.qualification_reasons:
