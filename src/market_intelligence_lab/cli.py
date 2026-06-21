@@ -21,6 +21,8 @@ from market_intelligence_lab.mi6.bls_release_qualification import (
 from market_intelligence_lab.mi7.sec_edgar_8k_qualification import (
     run_mi7_sec_edgar_8k_acceptance_qualification,
 )
+from market_intelligence_lab.mi8.outcome_maturity import run_outcome_maturity
+from market_intelligence_lab.mi8.shadow_record import run_shadow_record
 from market_intelligence_lab.quality.validation import DataQualityError
 
 
@@ -138,6 +140,27 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("configs/sec_issuer_panel_mi7.yaml"),
     )
+    mi8 = subparsers.add_parser(
+        "run-mi8-shadow-record",
+        help="Run MI-8 frozen ETF shadow-prediction protocol.",
+    )
+    mi8.add_argument(
+        "--mode", type=str, required=True, choices=["historical-replay", "prospective-shadow"]
+    )
+    mi8.add_argument("--start-date", type=str, default="auto")
+    mi8.add_argument("--end-date", type=str, default="auto")
+    mi8.add_argument("--mi1-data-root", type=Path, required=True)
+    mi8.add_argument("--mi8-data-root", type=Path, required=True)
+    mi8.add_argument("--report-root", type=Path, required=True)
+
+    mi8_mature = subparsers.add_parser(
+        "mature-mi8-shadow-outcomes",
+        help="Process outcome maturity for existing MI-8 prediction batches.",
+    )
+    mi8_mature.add_argument("--mi1-data-root", type=Path, required=True)
+    mi8_mature.add_argument("--mi8-data-root", type=Path, required=True)
+    mi8_mature.add_argument("--report-root", type=Path, required=True)
+    mi8_mature.add_argument("--as-of-timestamp", type=str, default=None)
     return parser
 
 
@@ -362,6 +385,28 @@ def main() -> None:
         print("output_paths:")
         for name, path in result.output_paths.items():
             print(f"  {name}: {path}")
+        return
+
+    if args.command == "run-mi8-shadow-record":
+        run_shadow_record(
+            mode=args.mode,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            mi1_data_root=args.mi1_data_root,
+            mi8_data_root=args.mi8_data_root,
+            report_root=args.report_root,
+        )
+        print("MI-8 shadow recording completed.")
+        return
+
+    if args.command == "mature-mi8-shadow-outcomes":
+        run_outcome_maturity(
+            mi1_data_root=args.mi1_data_root,
+            mi8_data_root=args.mi8_data_root,
+            report_root=args.report_root,
+            as_of_timestamp=args.as_of_timestamp,
+        )
+        print("MI-8 outcome maturity completed.")
         return
 
     if args.command != "refresh-mi1-market-data":

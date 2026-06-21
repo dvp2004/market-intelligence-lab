@@ -31,10 +31,15 @@ with its own point-in-time stock-price panel or a separately approved time-aware
 exposure mapping based on documented historical holdings data. Without one of those routes,
 MI-7 ends as a reusable data capability only.
 
-The historical MI-2 to MI-4 holdout is now an observed development holdout at programme level.
-Any future promotion requires a model and configuration frozen before a prospective shadow
-evaluation period. No candidate packet can be promoted from repeated historical experimentation
-alone.
+MI-2 through MI-4 historical holdout results are an observed development holdout.
+They are not final programme-level promotion evidence.
+
+Historical MI-8 replay records are operational and development evidence only.
+
+Only prospective MI-8 records generated after the frozen protocol is established
+may be considered in a future promotion decision.
+
+No candidate packet, model, or strategy can be promoted from repeatedly viewed historical experimentation alone.
 
 GMA remains the actual paper-trading and portfolio-construction track. Market Intelligence Lab
 remains research-only until a source family proves incremental forecast value under a frozen

@@ -220,3 +220,15 @@ issuer-to-ETF exposure mapping based on documented historical holdings data.
 ## Public-repository rule
 
 Code, contracts, manifests, synthetic fixtures, and permitted derived reports may be tracked. Credentials, licensed raw data, prohibited provider data, and non-permitted full copyrighted text must not be tracked.
+
+## Historical holdout language
+
+MI-2 through MI-4 historical holdout results are an observed development holdout.
+They are not final programme-level promotion evidence.
+
+Historical MI-8 replay records are operational and development evidence only.
+
+Only prospective MI-8 records generated after the frozen protocol is established
+may be considered in a future promotion decision.
+
+No candidate packet, model, or strategy can be promoted from repeatedly viewed historical experimentation alone.
